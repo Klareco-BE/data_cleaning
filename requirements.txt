@@ -2,3 +2,4 @@ streamlit
 openpyxl
 XlsxWriter
 requests
+streamlit-searchbox
