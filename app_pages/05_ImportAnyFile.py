@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
+import io
 
-st.title("General File Import for Opinum Upload")
-st.write("This page allows you to upload any data file (CSV, Excel) and convert selected variables into the Opinum standard format for easy upload.")
-st.write("Please ensure your data includes a date/time column and the variables you wish to upload in different columns.")
+st.title("General File Import")
+st.write("This page allows you to upload any data file (CSV, Excel) and export selected variables into a single Excel file for further analysis.")
+st.write("Please ensure your data includes a date/time column and the variables you wish to export in different columns.")
 
-uploaded_file = st.file_uploader("Upload your data file (CSV, Excel, etc.)", type=["csv", "xlsx", "xls"]) 
+uploaded_file = st.file_uploader("Upload your data file (CSV, Excel, etc.)", type=["csv", "xlsx", "xls"])
 
 df = None
 if uploaded_file:
@@ -17,45 +18,32 @@ if uploaded_file:
         st.error("Unsupported file type.")
 
 if df is not None:
-    #st.write("Preview of uploaded data:")
-    #st.dataframe(df.head())
     columns = list(df.columns)
+    date_col = st.selectbox("Select the date/time column:", columns, key="date_col")
     variable_columns = st.multiselect(
-        "Select variables to upload (including date/time column):",
-        columns
+        "Select variables to export:",
+        [col for col in columns if col != date_col]
     )
     if variable_columns:
-        #st.write("You selected:", variable_columns)
-        date_col = st.selectbox("Select the date/time column:", columns, key="date_col")
+        file_name = st.text_input("Optional file name", key="fname")
+
+        out_df = pd.DataFrame({"date": pd.to_datetime(df[date_col], errors='coerce')})
         for var in variable_columns:
-            if var == date_col:
-                continue
-            st.subheader(f"Settings for variable: {var}")
-            source_id = st.text_input(f"Source ID for {var}", key=f"source_{var}")
-            variable_id = st.text_input(f"Variable ID for {var}", key=f"varid_{var}")
-            file_name = st.text_input(f"Optional file name for {var}", key=f"fname_{var}")
-            # Prepare Opinum format: Date, Value, Source ID, Variable ID
-            # Parse date column with explicit format
-            parsed_dates = pd.to_datetime(df[date_col], errors='coerce')
-            # Format for Opinum: YYYY-MM-DD HH:MM:SS
-            formatted_dates = parsed_dates.dt.strftime('%Y-%m-%d %H:%M:%S')
-            out_df = pd.DataFrame({
-                "date": formatted_dates,
-                "value": df[var],
-                "source_id": source_id,
-                "variable_id": variable_id
-            })
-            # File naming as in EnergyBox: OpisenseStandardDataFile_<name>.csv
-            out_file_name = f"OpisenseStandardDataFile_{file_name if file_name else var}.csv"
-            csv_data = out_df.to_csv(index=False)
-            st.download_button(
-                label=f"Download CSV for '{var}'",
-                data=csv_data,
-                file_name=out_file_name,
-                mime="text/csv",
-                key=f"download_{var}",
-                disabled=not (source_id and variable_id)
-            )
+            out_df[var] = df[var]
+
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+            out_df.to_excel(writer, index=False, sheet_name='Data')
+        excel_buffer.seek(0)
+
+        out_file_name = f"{file_name if file_name else 'ExportedData'}.xlsx"
+        st.download_button(
+            label="Download Excel file",
+            data=excel_buffer,
+            file_name=out_file_name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_excel"
+        )
 
 else:
     st.info("Please upload a file to begin.")
