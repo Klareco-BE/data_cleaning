@@ -12,7 +12,7 @@ import io
 st.title("Temperature Sensors Data Cleaning")
 st.write("This page is designed to help you clean and prepare your temperature sensor data for an analysis in Excel.")
 
-uploaded_files = st.file_uploader("Choose one or more files", accept_multiple_files=True)
+uploaded_files = st.file_uploader("Choose one or more files", type=["csv", "txt", "xlsx", "xls"], accept_multiple_files=True)
 round_time = st.checkbox("Round timestamps to nearest 15 minutes before merging", value=True)
 
 merged_df = None
@@ -27,6 +27,9 @@ if uploaded_files:
         elif file_name_lower.endswith('.txt'):
             uploaded_file.seek(0)
             df = pd.read_csv(uploaded_file, delimiter=",", encoding="latin1")
+        elif file_name_lower.endswith(('.xlsx', '.xls')):
+            uploaded_file.seek(0)
+            df = pd.read_excel(uploaded_file)
         else:
             st.warning(f"Unsupported file type: {uploaded_file.name}")
             continue
