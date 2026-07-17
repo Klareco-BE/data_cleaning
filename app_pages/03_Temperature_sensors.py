@@ -234,6 +234,10 @@ for df in sources:
     # Round to nearest 15 minutes if checkbox is checked
     if round_time:
         df["DateTime"] = df["DateTime"].dt.round('15min')
+        # Rounding can make two readings land on the same slot (e.g. a source
+        # sampled more often than every 15 min) - average those together so
+        # DateTime stays unique before merging.
+        df = df.groupby("DateTime", as_index=False).mean()
 
     if merged_df is None:
         merged_df = df
