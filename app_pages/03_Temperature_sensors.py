@@ -10,6 +10,7 @@ import numpy as np
 import io
 import re
 import requests
+from streamlit_searchbox import st_searchbox
 
 IRM_WFS_URL = "https://opendata.meteo.be/service/ows"
 IRM_LAYERS = {"Hourly": "aws_1hour", "10-minute": "aws_10min", "Daily": "aws_1day"}
@@ -79,19 +80,25 @@ def fetch_irm_data(station_code, start_date, end_date, layer):
     return pd.read_csv(io.StringIO(resp.text))
 
 
-def geocode_address(address):
-    """Look up an address via OpenStreetMap Nominatim and return (lat, lon), or None if not found."""
-    resp = requests.get(
-        NOMINATIM_URL,
-        params={"q": address, "format": "json", "limit": 1},
-        headers=NOMINATIM_HEADERS,
-        timeout=10,
-    )
-    resp.raise_for_status()
-    results = resp.json()
-    if not results:
-        return None
-    return float(results[0]["lat"]), float(results[0]["lon"])
+def search_addresses(searchterm):
+    """Look up address suggestions via OpenStreetMap Nominatim as the user types.
+
+    Returns a list of (display_label, (lat, lon)) tuples for st_searchbox.
+    """
+    if not searchterm or len(searchterm) < 3:
+        return []
+    try:
+        resp = requests.get(
+            NOMINATIM_URL,
+            params={"q": searchterm, "format": "json", "limit": 5},
+            headers=NOMINATIM_HEADERS,
+            timeout=5,
+        )
+        resp.raise_for_status()
+        results = resp.json()
+    except Exception:
+        return []
+    return [(r["display_name"], (float(r["lat"]), float(r["lon"]))) for r in results]
 
 
 st.title("Temperature Sensors Data Cleaning")
@@ -111,18 +118,16 @@ if use_irm:
 
     lat = lon = None
     if location_mode == "Address":
-        address = st.text_input("Project address", placeholder="e.g. Rue Example 12, 1000 Bruxelles")
-        if address:
-            try:
-                coords = geocode_address(address)
-            except Exception as e:
-                coords = None
-                st.error(f"Could not look up that address: {e}")
-            if coords:
-                lat, lon = coords
-                st.caption(f"Coordinates found: {lat:.4f}, {lon:.4f}")
-            elif address:
-                st.warning("Could not find that address. Try being more specific, or use coordinates instead.")
+        selected = st_searchbox(
+            search_addresses,
+            placeholder="Start typing an address...",
+            label="Project address",
+            debounce=300,
+            key="address_searchbox",
+        )
+        if selected:
+            lat, lon = selected
+            st.caption(f"Coordinates found: {lat:.4f}, {lon:.4f}")
     else:
         col1, col2 = st.columns(2)
         lat = col1.number_input("Latitude", value=50.8503, format="%.4f")
