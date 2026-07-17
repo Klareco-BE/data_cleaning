@@ -234,6 +234,10 @@ for df in sources:
     # Round to nearest 15 minutes if checkbox is checked
     if round_time:
         df["DateTime"] = df["DateTime"].dt.round('15min')
+        # Rounding can make two readings land on the same slot (e.g. a source
+        # sampled more often than every 15 min) - average those together so
+        # DateTime stays unique before merging.
+        df = df.groupby("DateTime", as_index=False).mean()
 
     if merged_df is None:
         merged_df = df
@@ -242,7 +246,15 @@ for df in sources:
 
 if merged_df is not None:
     merged_df = merged_df.sort_values("DateTime")
-    merged_df.reset_index(drop=True, inplace=True)
+
+    if round_time:
+        # Fill in every 15-minute slot for each day covered, even where no source has data
+        day_start = merged_df["DateTime"].min().normalize()
+        day_end = merged_df["DateTime"].max().normalize() + pd.Timedelta(days=1) - pd.Timedelta(minutes=15)
+        full_range = pd.date_range(start=day_start, end=day_end, freq="15min")
+        merged_df = merged_df.set_index("DateTime").reindex(full_range).rename_axis("DateTime").reset_index()
+    else:
+        merged_df.reset_index(drop=True, inplace=True)
 
     # Output as XLSX
     output = io.BytesIO()
