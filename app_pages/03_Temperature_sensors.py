@@ -102,10 +102,56 @@ def search_addresses(searchterm):
 
 
 st.title("Temperature Sensors Data Cleaning")
-st.write("This page is designed to help you clean and prepare your temperature sensor data for an analysis in Excel.")
+st.write("This page is designed to help you clean and prepare your temperature sensor data for an analysis in Excel. \nYou can upload your sensor data files (CSV, TXT, XLSX, XLS) and optionally fetch outside temperature data from the closest IRM/KMI weather station.")
 
 uploaded_files = st.file_uploader("Choose one or more files", type=["csv", "txt", "xlsx", "xls"], accept_multiple_files=True)
 round_time = st.checkbox("Round timestamps to nearest 15 minutes before merging", value=True)
+
+merged_df = None
+sources = []
+
+if uploaded_files:
+    for uploaded_file in uploaded_files:
+        file_name = uploaded_file.name
+        file_name_lower = file_name.lower()
+        if file_name_lower.endswith('.csv'):
+            uploaded_file.seek(0)
+            df = pd.read_csv(uploaded_file)
+        elif file_name_lower.endswith('.txt'):
+            uploaded_file.seek(0)
+            df = pd.read_csv(uploaded_file, delimiter=",", encoding="latin1")
+        elif file_name_lower.endswith(('.xlsx', '.xls')):
+            uploaded_file.seek(0)
+            df = pd.read_excel(uploaded_file)
+        else:
+            st.warning(f"Unsupported file type: {uploaded_file.name}")
+            continue
+
+        # Try to find the date/time and temperature columns
+        possible_time_cols = [col for col in df.columns if "time" in col.lower() or "date" in col.lower()]
+        possible_temp_cols = [col for col in df.columns if "temp" in col.lower() or "celsius" in col.lower() or "°c" in col.lower()]
+        if not possible_time_cols or not possible_temp_cols:
+            st.warning(f"Could not find time or temperature columns in {file_name}")
+            continue
+
+        time_col = possible_time_cols[0]
+        temp_col = possible_temp_cols[0]
+
+        # Prepare the DataFrame for merging
+        df = df[[time_col, temp_col]].copy()
+        df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
+        df = df.dropna(subset=[time_col])
+
+        # Remove file extension from the column name
+        col_name = file_name.rsplit('.', 1)[0]
+        df = df.rename(columns={temp_col: col_name, time_col: "DateTime"})
+
+        sources.append(df)
+
+sensor_start = sensor_end = None
+if sources:
+    sensor_start = min(df["DateTime"].min() for df in sources).date()
+    sensor_end = max(df["DateTime"].max() for df in sources).date()
 
 st.markdown("---")
 st.markdown("#### Add outside temperature from IRM/KMI")
@@ -113,7 +159,10 @@ st.write("Automatically fetch the outside temperature from the closest IRM/KMI w
 
 use_irm = st.checkbox("Add outside temperature from IRM/KMI")
 
-if use_irm:
+if use_irm and sensor_start is None:
+    st.warning("Upload sensor data files above first - the date range for IRM/KMI is detected automatically from your sensor data.")
+
+if use_irm and sensor_start is not None:
     location_mode = st.radio("Locate the project by:", ["Address", "Coordinates"], horizontal=True)
 
     lat = lon = None
@@ -133,9 +182,8 @@ if use_irm:
         lat = col1.number_input("Latitude", value=50.8503, format="%.4f")
         lon = col2.number_input("Longitude", value=4.3517, format="%.4f")
 
-    col1, col2 = st.columns(2)
-    irm_start = col1.date_input("Start date", key="irm_start")
-    irm_end = col2.date_input("End date", key="irm_end")
+    irm_start, irm_end = sensor_start, sensor_end
+    st.caption(f"Date range detected from sensor data: {irm_start} to {irm_end}")
 
     granularity = st.selectbox("Data granularity", list(IRM_LAYERS.keys()), index=0)
 
@@ -190,47 +238,6 @@ elif "irm_data" in st.session_state:
     del st.session_state["irm_data"]
 
 st.markdown("---")
-
-merged_df = None
-sources = []
-
-if uploaded_files:
-    for uploaded_file in uploaded_files:
-        file_name = uploaded_file.name
-        file_name_lower = file_name.lower()
-        if file_name_lower.endswith('.csv'):
-            uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file)
-        elif file_name_lower.endswith('.txt'):
-            uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file, delimiter=",", encoding="latin1")
-        elif file_name_lower.endswith(('.xlsx', '.xls')):
-            uploaded_file.seek(0)
-            df = pd.read_excel(uploaded_file)
-        else:
-            st.warning(f"Unsupported file type: {uploaded_file.name}")
-            continue
-
-        # Try to find the date/time and temperature columns
-        possible_time_cols = [col for col in df.columns if "time" in col.lower() or "date" in col.lower()]
-        possible_temp_cols = [col for col in df.columns if "temp" in col.lower() or "celsius" in col.lower() or "°c" in col.lower()]
-        if not possible_time_cols or not possible_temp_cols:
-            st.warning(f"Could not find time or temperature columns in {file_name}")
-            continue
-
-        time_col = possible_time_cols[0]
-        temp_col = possible_temp_cols[0]
-
-        # Prepare the DataFrame for merging
-        df = df[[time_col, temp_col]].copy()
-        df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
-        df = df.dropna(subset=[time_col])
-
-        # Remove file extension from the column name
-        col_name = file_name.rsplit('.', 1)[0]
-        df = df.rename(columns={temp_col: col_name, time_col: "DateTime"})
-
-        sources.append(df)
 
 if use_irm and "irm_data" in st.session_state:
     sources.append(st.session_state["irm_data"]["df"].copy())
